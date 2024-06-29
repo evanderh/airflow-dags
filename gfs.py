@@ -16,22 +16,23 @@ import pendulum
 from layers import LAYERS
 from legend import build_legend
 
-N_FORECASTS = 3
+N_FORECASTS = 6
 LAYERS_PATH = '/opt/airflow/layers'
 BASE_URL = 'https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl'
+HOUR_MARGIN = 3
 
 def cycle_hour(logical_date: pendulum.DateTime):
-    logical_date = logical_date.subtract(hours=24)
+    logical_date = logical_date.subtract(hours=HOUR_MARGIN)
     return f"{(logical_date.hour // 6) * 6:02d}"
 
 def forecast_dt(logical_date: pendulum.DateTime, hour: int):
-    logical_date = logical_date.subtract(hours=24)
+    logical_date = logical_date.subtract(hours=HOUR_MARGIN)
     logical_date = logical_date.replace(hour=(logical_date.hour // 6) * 6)
     logical_date = logical_date.add(hours=hour)
     return f"{logical_date.strftime('%Y-%m-%dT%H')}"
 
 def cycle_dt(logical_date: pendulum.DateTime):
-    logical_date = logical_date.subtract(hours=24)
+    logical_date = logical_date.subtract(hours=HOUR_MARGIN)
     logical_date = logical_date.replace(hour=(logical_date.hour // 6) * 6)
     return f"{logical_date.strftime('%Y-%m-%dT%H')}"
 
