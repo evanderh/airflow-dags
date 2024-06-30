@@ -130,6 +130,7 @@ for dataset, tile_dataset in zip(gfs_datasets, tiles_datasets):
 
                 @task.bash
                 def generate_tiles(forecast_path, layer_name):
+                    # https://gdal.org/programs/gdal2tiles.html
                     dest_path = os.path.join(forecast_path, layer_name)
                     print(f"Tiling {layer['name']} from {shade_path} to {dest_path}")
                     return f'gdal2tiles.py -z 3-6 {shade_path} {dest_path}'
