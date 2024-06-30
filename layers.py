@@ -212,3 +212,13 @@ LAYERS = [
     rh_layer,
     gust_layer,
 ]
+
+def build_color_table(dest, layer):
+    with open(dest, 'w') as f:
+        scale = layer['scale']
+        scale_range = scale[1] - scale[0]
+        bit_value = scale_range / 255
+        for row in layer['color_scale']:
+            scaled_value = round((row[0] - scale[0]) / bit_value)
+            scaled_row = ' '.join([str(scaled_value), *map(str, row[1:])])
+            f.write(scaled_row + '\n')
