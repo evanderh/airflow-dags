@@ -16,7 +16,7 @@ import pendulum
 from layers import LAYERS
 from legend import build_legend
 
-N_FORECASTS = 6
+N_FORECASTS = 3
 LAYERS_PATH = '/opt/airflow/layers'
 BASE_URL = 'https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl'
 HOUR_MARGIN = 3
@@ -121,8 +121,11 @@ for dataset, tile_dataset in zip(gfs_datasets, tiles_datasets):
         },
     ) as dag:
         layers_path = '{{ layers_path }}'
-        cycle_path = os.path.join(layers_path, '{{ cycle_dt(logical_date) }}')
-        forecast_path = os.path.join(cycle_path, '{{ forecast_dt(logical_date, hour) }}')
+        cycle_name = '{{ cycle_dt(logical_date) }}'
+        forecast_name = '{{ forecast_dt(logical_date, hour) }}'
+        cycle_path = os.path.join(layers_path, cycle_name)
+        forecast_path = os.path.join(cycle_path, forecast_name)
+
         vector_elements = ['UGRD', 'VGRD']
         process_vectors = []
         process_layers = []
@@ -260,15 +263,15 @@ for dataset, tile_dataset in zip(gfs_datasets, tiles_datasets):
             process_layers.append(process_layer())
 
         @task(outlets=[tile_dataset])
-        def complete_process(layers_path, cycle_path):
+        def complete_process(layers_path, cycle_name):
             new_path = os.path.join(layers_path, 'new')
             if os.path.islink(new_path):
                 os.remove(new_path)
-            os.symlink(cycle_path, new_path)
+            os.symlink(cycle_name, new_path)
 
         create_dirs = create_dirs_task()
         combine = combine_vectors(forecast_path)
-        complete = complete_process(layers_path, cycle_path)
+        complete = complete_process(layers_path, cycle_name)
         
         create_dirs >> process_vectors >> combine >> complete
         create_dirs >> process_layers >> complete
@@ -296,7 +299,7 @@ with DAG(
         if prev_target != new_target:
             print(f'Linking {current_path} to {new_target}')
             os.remove(current_path)
-            os.symlink(new_target, current_path)
+            os.symlink(new_target.name, current_path)
             
             print(f'Removing {prev_target}')
             shutil.rmtree(prev_target)
