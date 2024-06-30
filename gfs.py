@@ -80,7 +80,7 @@ for dataset, tile_dataset in zip(gfs_datasets, tiles_datasets):
 
                 translate(element) >> warp() >> get_data() >> output()
 
-            process_vectors.append(process_vector(dataset.uri))
+            process_vectors.append(process_vector(dataset))
             
         @task
         def combine_vectors(forecast_path, ti: TaskInstance):
