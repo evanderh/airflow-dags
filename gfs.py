@@ -46,7 +46,7 @@ for dataset, tile_dataset in zip(gfs_datasets, tiles_datasets):
 
         for element in vector_elements:
             @task_group(group_id=f'process_{element}')
-            def process_vector():
+            def process_vector(dataset):
                 translate_path = f'{dataset.uri}.{element}.t.tif'
                 warp_path = f'{dataset.uri}.{element}.w.tif'
                 vector_path = f'{dataset.uri}.{element}.json'
@@ -80,7 +80,7 @@ for dataset, tile_dataset in zip(gfs_datasets, tiles_datasets):
 
                 translate(element) >> warp() >> get_data() >> output()
 
-            process_vectors.append(process_vector())
+            process_vectors.append(process_vector(dataset.uri))
             
         @task
         def combine_vectors(forecast_path, ti: TaskInstance):
@@ -96,7 +96,7 @@ for dataset, tile_dataset in zip(gfs_datasets, tiles_datasets):
             element = layer['band']['element']
 
             @task_group(group_id=f'process_{element}')
-            def process_layer():
+            def process_layer(dataset):
                 translate_path = f'{dataset.uri}.{element}.t.tif'
                 warp_path = f'{dataset.uri}.{element}.w.tif'
                 color_table_path = f'{dataset.uri}.{element}.color.txt'
@@ -148,7 +148,7 @@ for dataset, tile_dataset in zip(gfs_datasets, tiles_datasets):
                 color_table(layer) >> shader
                 generate_legend(layers_path)
 
-            process_layers.append(process_layer())
+            process_layers.append(process_layer(dataset))
 
         @task(outlets=[tile_dataset])
         def complete_process(layers_path, cycle_name):
