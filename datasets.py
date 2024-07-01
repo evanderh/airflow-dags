@@ -1,6 +1,6 @@
 from airflow import Dataset
 
-NUM_FORECASTS = 17
+NUM_FORECASTS = 25
 HOURS_PER_FORECAST = 3
 
 gfs_datasets = [

@@ -2,7 +2,7 @@ import time
 import pprint
 import urllib.parse
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from osgeo import gdal
 from airflow import DAG
@@ -19,8 +19,8 @@ BASE_URL = 'https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl'
 
 with DAG(
     dag_id='gfs_extract',
-    schedule=None,
     start_date=datetime(2024, 1, 1),
+    schedule=timedelta(hours=6),
     catchup=False,
     user_defined_macros={
         'cycle_hour': cycle_hour,
