@@ -1,8 +1,10 @@
 import time
+import pprint
 import urllib.parse
 import urllib.request
 from datetime import datetime
 
+from osgeo import gdal
 from airflow import DAG
 from airflow.decorators import task
 from airflow.providers.http.sensors.http import HttpSensor
@@ -44,7 +46,7 @@ with DAG(
             task_id=f"download_{dataset.extra['hour']}",
             outlets=[dataset]
         )
-        def download_file(gfs_dir, filename):
+        def download_file(gfs_dir, filename, dataset):
             print(f"Downloading {filename} from {gfs_dir}")
             encoded_params = urllib.parse.urlencode({
                 'dir': gfs_dir,
@@ -65,10 +67,12 @@ with DAG(
             print(query_uri)
 
             urllib.request.urlretrieve(query_uri, dataset.uri)
+            info = gdal.Info(dataset.uri, format='json')
+            pprint.pp(info)
             # 10s wait to prevent excessive requests
             time.sleep(10)
         
         # download in series
-        download = download_file(gfs_dir, filename)
+        download = download_file(gfs_dir, filename, dataset)
         previous >> download
         previous = download

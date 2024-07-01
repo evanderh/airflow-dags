@@ -99,7 +99,7 @@ for dataset, tile_dataset in zip(gfs_datasets, tiles_datasets):
             def process_layer(dataset):
                 translate_path = f'{dataset.uri}.{element}.t.tif'
                 warp_path = f'{dataset.uri}.{element}.w.tif'
-                color_table_path = f'{dataset.uri}.{element}.color.txt'
+                color_table_path = f'{dataset.uri}.color.txt'
                 shade_path = f'{dataset.uri}.{element}.s.tif'
 
                 @task
