@@ -19,7 +19,7 @@ BASE_URL = 'https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl'
 with DAG(
     dag_id='gfs_extract',
     start_date=datetime(2024, 7, 1),
-    schedule=timedelta(hours=6),
+    schedule='0 3,9,15,21 * * *',
     catchup=False,
     user_defined_macros={
         'cycle_hour': cycle_hour,
