@@ -1,6 +1,7 @@
 import os
 import json
 import shutil
+import tempfile
 from pathlib import Path
 from datetime import datetime
 
@@ -153,10 +154,15 @@ for dataset, tile_dataset in zip(gfs_datasets, tiles_datasets):
         @task(outlets=[tile_dataset])
         def complete_process(layers_path, cycle_name):
             new_path = os.path.join(layers_path, 'new')
-            if os.path.islink(new_path):
-                os.remove(new_path)
             print(f"Linking {new_path} to {cycle_name}")
-            os.symlink(cycle_name, new_path)
+            temp_link_path = tempfile.mktemp(dir=layers_path)
+            os.symlink(cycle_name, temp_link_path)
+            try:
+                os.replace(temp_link_path, new_path)
+            except:
+                if os.path.islink(temp_link_path):
+                    os.remove(temp_link_path)
+                raise
 
         create_dirs = create_dirs_task()
         combine = combine_vectors(forecast_path)
