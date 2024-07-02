@@ -9,51 +9,52 @@ from airflow import DAG
 from airflow.decorators import task, task_group
 from airflow.models.taskinstance import TaskInstance
 from osgeo import gdal
+import pendulum
 
-from grib import translate_vector, get_vector_metadata, translate_layer
+from paths import LAYERS_PATH, CYCLE_PATH
 from layers import LAYERS, build_color_table
 from legend import build_legend
-from macros import forecast_ts, cycle_ts
 from datasets import gfs_datasets, tiles_datasets
+from grib import translate_vector, get_vector_metadata, translate_layer
 
-LAYERS_PATH = '/opt/airflow/layers'
+DT_FORMAT = '%Y-%m-%dT%H'
 
 for dataset, tile_dataset in zip(gfs_datasets, tiles_datasets):
     with DAG(
         dag_id=f"gfs_process_{dataset.extra['hour']:03}",
         schedule=[dataset],
-        start_date=datetime(2024, 1, 1),
+        start_date=datetime(2024, 7, 1),
         catchup=False,
-        user_defined_macros={
-            'forecast_ts': forecast_ts,
-            'cycle_ts': cycle_ts,
-            'hour': dataset.extra['hour'],
-            'layers_path': LAYERS_PATH,
-        },
     ) as dag:
-        layers_path = '{{ layers_path }}'
-        cycle_name = '{{ cycle_ts(logical_date) }}'
-        forecast_name = '{{ forecast_ts(logical_date, hour) }}'
-        cycle_path = os.path.join(layers_path, cycle_name)
-        forecast_path = os.path.join(cycle_path, forecast_name)
 
-        vector_elements = ['UGRD', 'VGRD']
-        process_vectors = []
-        process_layers = []
+        @task(multiple_outputs=True)
+        def get_paths(dataset):
+            with open(CYCLE_PATH, 'r') as file:
+                cycle_dt = pendulum.parse(file.read())
+                forecast_dt = cycle_dt.add(hours=dataset.extra['hour'])
+                cycle = cycle_dt.strftime(DT_FORMAT)
+                forecast = forecast_dt.strftime(DT_FORMAT)
+                return {
+                    'cycle': cycle,
+                    'forecast': forecast,
+                    'forecast_path': os.path.join(LAYERS_PATH, cycle, forecast),
+                }
 
         @task.bash
         def create_dirs_task():
+            forecast_path = "{{ ti.xcom_pull(task_ids='get_paths', key='forecast_path') }}"
             return f'mkdir -p {forecast_path}'
 
-        for element in vector_elements:
+        process_vectors = []
+        for element in ['UGRD', 'VGRD']:
             @task_group(group_id=f'process_{element}')
-            def process_vector(dataset):
+            def process_vector(dataset, element):
                 translate_path = f'{dataset.uri}.{element}.t.tif'
                 warp_path = f'{dataset.uri}.{element}.w.tif'
                 vector_path = f'{dataset.uri}.{element}.json'
 
                 @task
-                def translate(element):
+                def translate(dataset, element):
                     # https://gdal.org/programs/gdal_translate.html
                     print(f"Translating {dataset.uri} to {translate_path}")
                     translate_vector(translate_path, dataset.uri, element)
@@ -79,12 +80,14 @@ for dataset, tile_dataset in zip(gfs_datasets, tiles_datasets):
                             'header': get_vector_metadata(warp_path),
                         }
 
-                translate(element) >> warp() >> get_data() >> output()
+                translate(dataset, element) >> warp() >> get_data() >> output()
 
-            process_vectors.append(process_vector(dataset))
+            process_vectors.append(process_vector(dataset, element))
             
         @task
-        def combine_vectors(forecast_path, ti: TaskInstance):
+        def combine_vectors(ti: TaskInstance):
+            forecast_path = ti.xcom_pull(task_ids='get_paths', key='forecast_path')
+            print(forecast_path)
             ugrd = ti.xcom_pull(task_ids=f"process_UGRD.output")
             vgrd = ti.xcom_pull(task_ids=f"process_VGRD.output")
             output_path = os.path.join(forecast_path, 'wind_velocity.json')
@@ -93,18 +96,18 @@ for dataset, tile_dataset in zip(gfs_datasets, tiles_datasets):
             with open(output_path, 'w') as f:
                 json.dump([ugrd, vgrd], f)
 
+        process_layers = []
         for layer in LAYERS:
-            element = layer['band']['element']
-
-            @task_group(group_id=f'process_{element}')
-            def process_layer(dataset):
+            @task_group(group_id=f"process_{layer['band']['element']}")
+            def process_layer(dataset, layer):
+                element = layer['band']['element']
                 translate_path = f'{dataset.uri}.{element}.t.tif'
                 warp_path = f'{dataset.uri}.{element}.w.tif'
                 color_table_path = f'{element}.color.txt'
                 shade_path = f'{dataset.uri}.{element}.s.tif'
 
                 @task
-                def translate(layer):
+                def translate(dataset, layer):
                     # https://gdal.org/programs/gdal_translate.html
                     print(f"Translating {dataset.uri} to {translate_path}")
                     translate_layer(translate_path, dataset.uri, layer)
@@ -130,33 +133,34 @@ for dataset, tile_dataset in zip(gfs_datasets, tiles_datasets):
                                        colorFilename=color_table_path)
 
                 @task.bash
-                def generate_tiles(forecast_path, layer_name):
+                def generate_tiles(layer):
                     # https://gdal.org/programs/gdal2tiles.html
-                    dest_path = os.path.join(forecast_path, layer_name)
+                    forecast_path = "{{ ti.xcom_pull(task_ids='get_paths', key='forecast_path') }}"
+                    dest_path = os.path.join(forecast_path, layer['name'])
                     print(f"Tiling {layer['name']} from {shade_path} to {dest_path}")
                     return f'gdal2tiles.py -z 3-6 {shade_path} {dest_path}'
 
                 @task
-                def generate_legend(layers_path):
-                    name = f"{layer['name']}.png"
-                    dest_path = os.path.join(layers_path, name)
+                def generate_legend(layer):
+                    dest_path = os.path.join(LAYERS_PATH, f"{layer['name']}.png")
                     print(f"Saving legend for {layer['name']} to {dest_path}")
                     build_legend(layer, dest_path)
 
                 shader = shade()
-                generate = generate_tiles(forecast_path, layer['name'])
-                translate(layer) >> warp() >> shader >> generate
+                translate(dataset, layer) >> warp() >> shader >> generate_tiles(layer)
                 color_table(layer) >> shader
-                generate_legend(layers_path)
+                generate_legend(layer)
 
-            process_layers.append(process_layer(dataset))
+            process_layers.append(process_layer(dataset, layer))
 
         @task(outlets=[tile_dataset])
-        def complete_process(layers_path, cycle_name):
-            new_path = os.path.join(layers_path, 'new')
-            print(f"Linking {new_path} to {cycle_name}")
-            temp_link_path = tempfile.mktemp(dir=layers_path)
-            os.symlink(cycle_name, temp_link_path)
+        def complete_process(ti):
+            new_path = os.path.join(LAYERS_PATH, 'new')
+            cycle = ti.xcom_pull(task_ids='get_paths', key='cycle')
+
+            print(f"Linking {new_path} to {cycle}")
+            temp_link_path = tempfile.mktemp(dir=LAYERS_PATH)
+            os.symlink(cycle, temp_link_path)
             try:
                 os.replace(temp_link_path, new_path)
             except:
@@ -165,10 +169,10 @@ for dataset, tile_dataset in zip(gfs_datasets, tiles_datasets):
                 raise
 
         create_dirs = create_dirs_task()
-        combine = combine_vectors(forecast_path)
-        complete = complete_process(layers_path, cycle_name)
+        complete = complete_process()
         
-        create_dirs >> process_vectors >> combine >> complete
+        get_paths(dataset) >> create_dirs
+        create_dirs >> process_vectors >> combine_vectors() >> complete
         create_dirs >> process_layers >> complete
 
 with DAG(
@@ -176,9 +180,6 @@ with DAG(
     schedule=tiles_datasets,
     start_date=datetime(2024, 1, 1),
     catchup=False,
-    user_defined_macros={
-        'layers_path': LAYERS_PATH,
-    },
 ) as dag:
     @task
     def update_current_cycle():
